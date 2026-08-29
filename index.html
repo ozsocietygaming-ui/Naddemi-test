@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>المتجر | طلب أونلاين</title>
+
+<!-- Tailwind CDN -->
+<script src="https://cdn.tailwindcss.com"></script>
+
+<!-- Google Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700;800;900&family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+
+<!-- Firebase (compat SDK) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+<!-- EmailJS -->
+<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          cream:   '#FAF8F5',
+          clay:    '#C39B8B',
+          clayDark:'#AD8676',
+          ink:     '#2C2724',
+          hair:    '#EAE5DF',
+        },
+        fontFamily: {
+          heading: ['Cairo', 'sans-serif'],
+          body: ['Tajawal', 'sans-serif'],
+        },
+        borderRadius: { xl: '1rem', '2xl': '1.5rem' }
+      }
+    }
+  }
+</script>
+
+<style>
+  * { font-family: 'Tajawal', sans-serif; }
+  h1,h2,h3,h4,.font-heading { font-family: 'Cairo', sans-serif; }
+  body { background:#FAF8F5; color:#2C2724; }
+  ::-webkit-scrollbar { width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb { background:#C39B8B; border-radius:8px; }
+  .hover-lift { transition: transform .18s ease, box-shadow .18s ease; }
+  .hover-lift:hover { transform: scale(1.01); box-shadow: 0 8px 24px rgba(44,39,36,0.08); }
+  .fade-in { animation: fadeIn .35s ease both; }
+  @keyframes fadeIn { from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} }
+  .spin { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  input:focus, select:focus, textarea:focus, button:focus-visible {
+    outline: 2px solid #C39B8B; outline-offset: 2px;
+  }
+  .tab-active { background:#C39B8B; color:#fff; }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation:none !important; transition:none !important; }
+  }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- ============ ROOT APP CONTAINER ============ -->
+<div id="app"></div>
+
+<!-- ============ GLOBAL TOAST ============ -->
+<div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-[100] hidden">
+  <div id="toastBox" class="px-5 py-3 rounded-xl shadow-lg font-heading font-bold text-sm bg-ink text-cream"></div>
+</div>
+
+<script>
+/* =========================================================================
+   1. FIREBASE CONFIG & INIT
+   ========================================================================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyDWhVTRNy9OGg-b8YvqjvIrgHi4o9jlEcc",
+  authDomain: "naddemi-test.firebaseapp.com",
+  projectId: "naddemi-test",
+  storageBucket: "naddemi-test.firebasestorage.app",
+  messagingSenderId: "53932859193",
+  appId: "1:53932859193:web:fd2e29647ec3d4c282d2e8",
+  databaseURL: "https://naddemi-test-default-rtdb.europe-west1.firebasedatabase.app/"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+/* =========================================================================
+   2. EMAILJS CONFIG  (⚠️ عدّل هذه القيم من لوحة تحكم EmailJS الخاصة بك)
+   ========================================================================= */
+const EMAILJS_PUBLIC_KEY  = "YOUR_EMAILJS_PUBLIC_KEY";
+const EMAILJS_SERVICE_ID  = "YOUR_EMAILJS_SERVICE_ID";
+const EMAILJS_TEMPLATE_ID = "YOUR_EMAILJS_TEMPLATE_ID";
+const STORE_OWNER_EMAIL   = "ozsocietygaming@gmail.com";
+try {
+  if (window.emailjs && EMAILJS_PUBLIC_KEY !== "YOUR_EMAILJS_PUBLIC_KEY") {
+    emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY });
+  }
+} catch(e) { console.warn("EmailJS init skipped:", e); }
+
+/* =========================================================================
+   3. FALLBACK / SEED DATA (تُستخدم قبل ضبط لوحة التحكم)
+   ========================================================================= */
+const FALLBACK_SETTINGS = {
+  storeName: "متجرنا",
+  logoUrl: "",
+  bannerUrl: "",
+  infoGraphicUrl: "",
+  adminPassword: "admin123"
+};
+
+const FALLBACK_PRODUCTS = {
+  p1: { name: "قميص قطني كلاسيكي", desc: "قماش قطني ناعم عالي الجودة، متوفر بعدة مقاسات.", price: 2800, image: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=500", active: true },
+  p2: { name: "حقيبة يد جلدية", desc: "تصميم أنيق مناسب للاستعمال اليومي.", price: 4500, image: "https://images.unsplash.com/photo-1590874103328-eac38a683ce7?w=500", active: true },
+  p3: { name: "ساعة يد رجالية", desc: "تصميم عصري بحزام جلدي فاخر.", price: 6200, image: "https://images.unsplash.com/photo-1524805444758-089113d48a6d?w=500", active: true },
+  p4: { name: "عطر فاخر 100مل", desc: "رائحة تدوم طويلاً، تركيبة أصلية.", price: 3300, image: "https://images.unsplash.com/photo-1541643600914-78b084683601?w=500", active: true }
+};
+
+// ولايات الجزائر الـ58 مع بلديات نموذجية (بيانات احتياطية أولية)
+const FALLBACK_WILAYAS = [
+ {code:"01",name:"أدرار",baladias:["أدرار","رقان","تيميمون"]},
+ {code:"02",name:"الشلف",baladias:["الشلف","الأبيض مجاجة","تنس"]},
+ {code:"03",name:"الأغواط",baladias:["الأغواط","أفلو","حاسي الدلاعة"]},
+ {code:"04",name:"أم البواقي",baladias:["أم البواقي","عين البيضاء","عين مليلة"]},
+ {code:"05",name:"باتنة",baladias:["باتنة","بريكة","تازولت","مروانة"]},
+ {code:"06",name:"بجاية",baladias:["بجاية","أقبو","تيشي","سيدي عيش"]},
+ {code:"07",name:"بسكرة",baladias:["بسكرة","سيدي عقبة","طولقة"]},
+ {code:"08",name:"بشار",baladias:["بشار","العبادلة","تاغيت"]},
+ {code:"09",name:"البليدة",baladias:["البليدة","بوفاريك","موزاية"]},
+ {code:"10",name:"البويرة",baladias:["البويرة","سور الغزلان","لخضرية"]},
+ {code:"11",name:"تمنراست",baladias:["تمنراست","عين صالح","عين قزام"]},
+ {code:"12",name:"تبسة",baladias:["تبسة","بئر العاتر","الشريعة"]},
+ {code:"13",name:"تلمسان",baladias:["تلمسان","مغنية","ندرومة","الرمشي"]},
+ {code:"14",name:"تيارت",baladias:["تيارت","فرندة","سوقر"]},
+ {code:"15",name:"تيزي وزو",baladias:["تيزي وزو","عزازقة","واضية","بوغني"]},
+ {code:"16",name:"الجزائر",baladias:["الجزائر الوسطى","باب الوادي","الحراش","برج الكيفان","القبة","بئر مراد رايس"]},
+ {code:"17",name:"الجلفة",baladias:["الجلفة","حاسي بحبح","عين وسارة"]},
+ {code:"18",name:"جيجل",baladias:["جيجل","الطاهير","الميلية"]},
+ {code:"19",name:"سطيف",baladias:["سطيف","العلمة","عين ولمان","بوقاعة"]},
+ {code:"20",name:"سعيدة",baladias:["سعيدة","عين الحجر","يوب"]},
+ {code:"21",name:"سكيكدة",baladias:["سكيكدة","عزابة","الحروش"]},
+ {code:"22",name:"سيدي بلعباس",baladias:["سيدي بلعباس","تلاغ","سفيزف"]},
+ {code:"23",name:"عنابة",baladias:["عنابة","الحجار","البوني"]},
+ {code:"24",name:"قالمة",baladias:["قالمة","بوشقوف","حمام دباغ"]},
+ {code:"25",name:"قسنطينة",baladias:["قسنطينة","الخروب","حامة بوزيان","ديدوش مراد"]},
+ {code:"26",name:"المدية",baladias:["المدية","برواقية","قصر البخاري"]},
+ {code:"27",name:"مستغانم",baladias:["مستغانم","سيدي علي","عين تادلس"]},
+ {code:"28",name:"المسيلة",baladias:["المسيلة","بوسعادة","سيدي عيسى"]},
+ {code:"29",name:"معسكر",baladias:["معسكر","سيق","غريس"]},
+ {code:"30",name:"ورقلة",baladias:["ورقلة","حاسي مسعود","تقرت"]},
+ {code:"31",name:"وهران",baladias:["وهران","عين الترك","بئر الجير","السانيا"]},
+ {code:"32",name:"البيض",baladias:["البيض","بريزينة","بوقطب"]},
+ {code:"33",name:"إليزي",baladias:["إليزي","جانت","برج عمر إدريس"]},
+ {code:"34",name:"برج بوعريريج",baladias:["برج بوعريريج","رأس الوادي","المنصورة"]},
+ {code:"35",name:"بومرداس",baladias:["بومرداس","بودواو","برج منايل","تيجلابين"]},
+ {code:"36",name:"الطارف",baladias:["الطارف","القالة","بوثلجة"]},
+ {code:"37",name:"تندوف",baladias:["تندوف","أم العسل"]},
+ {code:"38",name:"تيسمسيلت",baladias:["تيسمسيلت","برج بونعامة","خميستي"]},
+ {code:"39",name:"الوادي",baladias:["الوادي","قمار","المغير الوادي","حاسي خليفة"]},
+ {code:"40",name:"خنشلة",baladias:["خنشلة","بابار","قايس"]},
+ {code:"41",name:"سوق أهراس",baladias:["سوق أهراس","سدراتة","المشروحة"]},
+ {code:"42",name:"تيبازة",baladias:["تيبازة","شرشال","حجوط","القليعة"]},
+ {code:"43",name:"ميلة",baladias:["ميلة","فرجيوة","شلغوم العيد"]},
+ {code:"44",name:"عين الدفلى",baladias:["عين الدفلى","خميس مليانة","العطاف"]},
+ {code:"45",name:"النعامة",baladias:["النعامة","عين الصفراء","مشرية"]},
+ {code:"46",name:"عين تموشنت",baladias:["عين تموشنت","حمام بوحجر","بني صاف"]},
+ {code:"47",name:"غرداية",baladias:["غرداية","متليلي","المنيعة غرداية","بريان"]},
+ {code:"48",name:"غليزان",baladias:["غليزان","وادي رهيو","مازونة"]},
+ {code:"49",name:"تيميمون",baladias:["تيميمون","أولاد سعيد","أوقروت"]},
+ {code:"50",name:"برج باجي مختار",baladias:["برج باجي مختار","تيمياوين"]},
+ {code:"51",name:"أولاد جلال",baladias:["أولاد جلال","سيدي خالد","الدوسن"]},
+ {code:"52",name:"بني عباس",baladias:["بني عباس","تيميمون بني عباس","إقلي"]},
+ {code:"53",name:"إن صالح",baladias:["إن صالح","فقارة الزوى"]},
+ {code:"54",name:"إن قزام",baladias:["إن قزام","تين زاوتين"]},
+ {code:"55",name:"تقرت",baladias:["تقرت","المقارين","الطيبات"]},
+ {code:"56",name:"جانت",baladias:["جانت","برج الحواس"]},
+ {code:"57",name:"المغير",baladias:["المغير","تندلة المغير","سطيل"]},
+ {code:"58",name:"المنيعة",baladias:["المنيعة","حاسي الفحل"]}
+];
+
+// أسعار شحن افتراضية (يمكن للأدمن تعديلها) — د.ج
+const FALLBACK_SHIPPING = {};
+FALLBACK_WILAYAS.forEach(w => { FALLBACK_SHIPPING[w.code] = { home: 600, desk: 400 }; });
+
+// مكاتب توصيل افتراضية نموذجية
+const FALLBACK_DESKS = {
+  d1: { wilayaCode: "16", baladia: "الحراش", address: "مكتب المركزي - شارع الاستقلال", fee: 400 },
+  d2: { wilayaCode: "31", baladia: "وهران", address: "مكتب وهران المركزي - حي المدينة الجديدة", fee: 450 }
+};
+
+/* =========================================================================
+   4. GLOBAL STATE
+   ========================================================================= */
+let STATE = {
+  settings: {...FALLBACK_SETTINGS},
+  products: {...FALLBACK_PRODUCTS},
+  wilayas: FALLBACK_WILAYAS,
+  shipping: {...FALLBACK_SHIPPING},
+  desks: {...FALLBACK_DESKS},
+  orders: {},
+  cart: {},           // { productId: qty }
+  deliveryType: "home", // home | desk
+  selectedWilaya: "",
+  selectedBaladia: "",
+  paymentMethod: "cod",
+  isAdmin: false,
+  adminTab: "orders"
+};
+
+/* =========================================================================
+   5. FIREBASE REALTIME LISTENERS (يدمج مع القيم الاحتياطية)
+   ========================================================================= */
+function initFirebaseListeners() {
+  db.ref("settings").on("value", snap => {
+    const v = snap.val();
+    STATE.settings = v ? { ...FALLBACK_SETTINGS, ...v } : {...FALLBACK_SETTINGS};
+    render();
+  });
+  db.ref("products").on("value", snap => {
+    const v = snap.val();
+    STATE.products = v && Object.keys(v).length ? v : {...FALLBACK_PRODUCTS};
+    render();
+  });
+  db.ref("shipping").on("value", snap => {
+    const v = snap.val();
+    STATE.shipping = v && Object.keys(v).length ? v : {...FALLBACK_SHIPPING};
+    render();
+  });
+  db.ref("desks").on("value", snap => {
+    const v = snap.val();
+    STATE.desks = v || {};
+    render();
+  });
+  db.ref("orders").on("value", snap => {
+    STATE.orders = snap.val() || {};
+    render();
+  });
+}
+
+/* =========================================================================
+   6. HELPERS
+   ========================================================================= */
+function fmtDZD(n) { return (Number(n)||0).toLocaleString("ar-DZ") + " د.ج"; }
+
+function showToast(msg, ok=true) {
+  const t = document.getElementById("toast");
+  const box = document.getElementById("toastBox");
+  box.textContent = msg;
+  box.className = "px-5 py-3 rounded-xl shadow-lg font-heading font-bold text-sm " + (ok ? "bg-ink text-cream" : "bg-red-600 text-white");
+  t.classList.remove("hidden");
+  clearTimeout(window.__toastTimer);
+  window.__toastTimer = setTimeout(() => t.classList.add("hidden"), 3000);
+}
+
+function cartCount() {
+  return Object.values(STATE.cart).reduce((a,b)=>a+b, 0);
+}
+function cartSubtotal() {
+  let sum = 0;
+  for (const [pid, qty] of Object.entries(STATE.cart)) {
+    const p = STATE.products[pid];
+    if (p) sum += (Number(p.price)||0) * qty;
+  }
+  return sum;
+}
+function currentDeliveryFee() {
+  if (!STATE.selectedWilaya) return 0;
+  if (STATE.deliveryType === "home") {
+    return Number(STATE.shipping[STATE.selectedWilaya]?.home || 0);
+  } else {
+    // ابحث عن سعر مكتب مطابق للولاية والبلدية المختارة، وإلا استخدم السعر الافتراضي للولاية
+    const match = Object.values(STATE.desks).find(d => d.wilayaCode === STATE.selectedWilaya && d.baladia === STATE.selectedBaladia);
+    if (match) return Number(match.fee || 0);
+    return Number(STATE.shipping[STATE.selectedWilaya]?.desk || 0);
+  }
+}
+function grandTotal() { return cartSubtotal() + currentDeliveryFee(); }
+
+function addToCart(pid) {
+  STATE.cart[pid] = (STATE.cart[pid]||0) + 1;
+  render();
+}
+function decFromCart(pid) {
+  if (!STATE.cart[pid]) return;
+  STATE.cart[pid] -= 1;
+  if (STATE.cart[pid] <= 0) delete STATE.cart[pid];
+  render();
+}
+function removeFromCart(pid) {
+  delete STATE.cart[pid];
+  render();
+}
+
+function getDesksForWilaya(code) {
+  return Object.entries(STATE.desks).filter(([id,d]) => d.wilayaCode === code);
+}
+
+/* =========================================================================
+   7. ROUTER
+   ========================================================================= */
+function isAdminRoute() {
+  return location.hash === "#admin" || location.hash.startsWith("#admin");
+}
+window.addEventListener("hashchange", render);
+
+/* =========================================================================
+   8. RENDER — CLIENT STOREFRONT
+   ========================================================================= */
+function renderStorefront() {
+  const s = STATE.settings;
+  const products = Object.entries(STATE.products).filter(([id,p]) => p.active !== false);
+  const wilaya = STATE.wilayas.find(w => w.code === STATE.selectedWilaya);
+  const baladiaOptions = STATE.deliveryType === "home"
+    ? (wilaya ? wilaya.baladias : [])
+    : getDesksForWilaya(STATE.selectedWilaya).map(([id,d]) => d.baladia);
+
+  return `
+  <div class="min-h-screen">
+    <!-- Header / Banner -->
+    <header class="relative">
+      <div class="h-44 md:h-64 w-full bg-hair overflow-hidden">
+        ${s.bannerUrl
+          ? `<img src="${escapeAttr(s.bannerUrl)}" class="w-full h-full object-cover" alt="غلاف المتجر">`
+          : `<div class="w-full h-full flex items-center justify-center bg-gradient-to-l from-clay/30 to-hair"><span class="font-heading text-clayDark text-lg">أضف صورة الغلاف من لوحة التحكم</span></div>`}
+      </div>
+      <div class="max-w-5xl mx-auto px-4">
+        <div class="-mt-10 flex items-end gap-4">
+          <div class="w-20 h-20 rounded-2xl bg-white shadow-md border border-hair overflow-hidden flex items-center justify-center">
+            ${s.logoUrl ? `<img src="${escapeAttr(s.logoUrl)}" class="w-full h-full object-cover" alt="شعار المتجر">` : `<span class="font-heading font-bold text-clay text-2xl">${(s.storeName||"م")[0]}</span>`}
+          </div>
+          <h1 class="font-heading font-extrabold text-2xl md:text-3xl pb-2">${escapeHtml(s.storeName||"متجرنا")}</h1>
+        </div>
+      </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto px-4 pb-40 pt-8 space-y-10">
+
+      <!-- Products -->
+      <section>
+        <h2 class="font-heading font-extrabold text-xl mb-4">منتجاتنا</h2>
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+          ${products.map(([pid,p]) => `
+            <div class="hover-lift bg-white rounded-xl border border-hair overflow-hidden flex flex-col">
+              <div class="h-32 md:h-40 bg-hair overflow-hidden">
+                ${p.image ? `<img src="${escapeAttr(p.image)}" class="w-full h-full object-cover" alt="${escapeAttr(p.name)}">` : ""}
+              </div>
+              <div class="p-3 flex-1 flex flex-col gap-1">
+                <h3 class="font-heading font-bold text-sm">${escapeHtml(p.name)}</h3>
+                <p class="text-xs text-ink/60 line-clamp-2">${escapeHtml(p.desc||"")}</p>
+                <div class="mt-auto pt-2 flex items-center justify-between">
+                  <span class="font-heading font-bold text-clayDark text-sm">${fmtDZD(p.price)}</span>
+                </div>
+                ${STATE.cart[pid]
+                  ? `<div class="flex items-center justify-between bg-cream rounded-lg border border-hair mt-1">
+                       <button onclick="addToCart('${pid}')" class="w-8 h-8 font-bold text-clayDark">+</button>
+                       <span class="font-heading font-bold text-sm">${STATE.cart[pid]}</span>
+                       <button onclick="decFromCart('${pid}')" class="w-8 h-8 font-bold text-clayDark">−</button>
+                     </div>`
+                  : `<button onclick="addToCart('${pid}')" class="mt-1 w-full py-2 rounded-lg bg-clay text-white font-heading font-bold text-xs hover:bg-clayDark transition">إضافة للسلة</button>`
+                }
+              </div>
+            </div>
+          `).join("")}
+          ${products.length === 0 ? `<p class="col-span-full text-center text-ink/50 py-10">لا توجد منتجات متاحة حالياً</p>` : ""}
+        </div>
+      </section>
+
+      <!-- Customer Details -->
+      <section class="bg-white rounded-2xl border border-hair p-5">
+        <h2 class="font-heading font-extrabold text-xl mb-4">البيانات الشخصية</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          ${formField("firstName","الاسم الأول *","text",STATE.form?.firstName)}
+          ${formField("lastName","اللقب *","text",STATE.form?.lastName)}
+          ${formField("instagram","اسم المستخدم على إنستغرام *","text",STATE.form?.instagram)}
+          ${formField("phone1","رقم الهاتف الأول *","tel",STATE.form?.phone1)}
+          ${formField("phone2","رقم الهاتف الثاني (اختياري)","tel",STATE.form?.phone2)}
+        </div>
+      </section>
+
+      <!-- Delivery -->
+      <section class="bg-white rounded-2xl border border-hair p-5">
+        <h2 class="font-heading font-extrabold text-xl mb-4">معلومات التوصيل *</h2>
+        <div class="flex gap-3 mb-4">
+          <button onclick="setDeliveryType('home')" class="flex-1 py-3 rounded-xl border font-heading font-bold text-sm transition ${STATE.deliveryType==='home' ? 'tab-active border-clay' : 'border-hair text-ink/70'}">توصيل للمنزل</button>
+          <button onclick="setDeliveryType('desk')" class="flex-1 py-3 rounded-xl border font-heading font-bold text-sm transition ${STATE.deliveryType==='desk' ? 'tab-active border-clay' : 'border-hair text-ink/70'}">توصيل للمكتب</button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-ink/70 mb-1">الولاية *</label>
+            <select onchange="onWilayaChange(this.value)" class="w-full border border-hair rounded-lg px-3 py-2 bg-cream text-sm">
+              <option value="">اختر الولاية</option>
+              ${STATE.wilayas.map(w => `<option value="${w.code}" ${STATE.selectedWilaya===w.code?"selected":""}>${w.code} - ${w.name}</option>`).join("")}
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-ink/70 mb-1">${STATE.deliveryType==='home' ? 'البلدية *' : 'مكتب التوصيل *'}</label>
+            <select onchange="onBaladiaChange(this.value)" class="w-full border border-hair rounded-lg px-3 py-2 bg-cream text-sm" ${!STATE.selectedWilaya ? "disabled":""}>
+              <option value="">${STATE.selectedWilaya ? 'اختر' : 'اختر الولاية أولاً'}</option>
+              ${baladiaOptions.map(b => `<option value="${escapeAttr(b)}" ${STATE.selectedBaladia===b?"selected":""}>${escapeHtml(b)}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+        ${STATE.deliveryType==='desk' && STATE.selectedBaladia ? (() => {
+          const d = getDesksForWilaya(STATE.selectedWilaya).find(([id,dd])=>dd.baladia===STATE.selectedBaladia);
+          return d ? `<p class="text-xs text-ink/60 mt-2">📍 العنوان: ${escapeHtml(d[1].address||"")}</p>` : "";
+        })() : ""}
+        ${STATE.selectedWilaya ? `<p class="mt-3 text-sm font-heading font-bold text-clayDark">سعر التوصيل: ${fmtDZD(currentDeliveryFee())}</p>` : ""}
+      </section>
+
+      <!-- Payment -->
+      <section class="bg-white rounded-2xl border border-hair p-5">
+        <h2 class="font-heading font-extrabold text-xl mb-4">طريقة الدفع *</h2>
+        <div class="flex gap-3">
+          <button onclick="setPayment('cod')" class="flex-1 py-3 rounded-xl border font-heading font-bold text-sm transition ${STATE.paymentMethod==='cod' ? 'tab-active border-clay' : 'border-hair text-ink/70'}">الدفع عند الاستلام</button>
+          <button onclick="setPayment('prepaid')" class="flex-1 py-3 rounded-xl border font-heading font-bold text-sm transition ${STATE.paymentMethod==='prepaid' ? 'tab-active border-clay' : 'border-hair text-ink/70'}">دفع مسبق (Flexy / CCP / BaridiMob)</button>
+        </div>
+      </section>
+
+      ${s.infoGraphicUrl ? `
+      <section class="bg-white rounded-2xl border border-hair p-5">
+        <h2 class="font-heading font-extrabold text-lg mb-3">تعليمات مهمة</h2>
+        <img src="${escapeAttr(s.infoGraphicUrl)}" class="rounded-xl w-full object-cover" alt="تعليمات">
+      </section>` : ""}
+
+    </main>
+
+    <!-- Sticky Cart Bar -->
+    ${cartCount() > 0 ? `
+    <div class="fixed bottom-0 inset-x-0 bg-white border-t border-hair shadow-[0_-4px_20px_rgba(0,0,0,0.06)] z-40">
+      <div class="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+        <div class="text-sm">
+          <span class="font-heading font-bold">${cartCount()} منتج</span>
+          <span class="text-ink/50"> — </span>
+          <span class="font-heading font-bold text-clayDark">${fmtDZD(grandTotal())}</span>
+        </div>
+        <button onclick="submitOrder()" ${STATE.submitting ? "disabled" : ""} class="px-6 py-3 rounded-xl bg-clay hover:bg-clayDark text-white font-heading font-bold text-sm transition flex items-center gap-2">
+          ${STATE.submitting ? `<span class="inline-block w-4 h-4 border-2 border-white/40 border-t-white rounded-full spin"></span> جارٍ الإرسال...` : "تأكيد الطلب"}
+        </button>
+      </div>
+    </div>` : ""}
+
+    <!-- Success Modal -->
+    ${STATE.showSuccess ? `
+    <div class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div class="bg-white rounded-2xl p-6 max-w-sm w-full text-center fade-in">
+        <div class="w-16 h-16 rounded-full bg-clay/15 text-clayDark flex items-center justify-center mx-auto mb-4 text-3xl">✓</div>
+        <h3 class="font-heading font-extrabold text-lg mb-2">تم استلام طلبك بنجاح!</h3>
+        <p class="text-sm text-ink/60 mb-5">سنتواصل معك قريباً لتأكيد الطلب. شكراً لثقتك بنا.</p>
+        <button onclick="closeSuccess()" class="w-full py-3 rounded-xl bg-clay hover:bg-clayDark text-white font-heading font-bold text-sm transition">حسناً</button>
+      </div>
+    </div>` : ""}
+
+    <footer class="text-center text-xs text-ink/40 py-6 pb-24">
+      <a href="#admin" class="hover:text-clayDark">لوحة التحكم</a>
+    </footer>
+  </div>
+  `;
+}
+
+function formField(id, label, type, value) {
+  return `
+  <div>
+    <label class="block text-xs font-bold text-ink/70 mb-1">${label}</label>
+    <input id="field_${id}" type="${type}" value="${escapeAttr(value||"")}" onchange="onFieldChange('${id}', this.value)"
+      class="w-full border border-hair rounded-lg px-3 py-2 bg-cream text-sm" />
+  </div>`;
+}
+function onFieldChange(id, val) {
+  STATE.form = STATE.form || {};
+  STATE.form[id] = val;
+}
+function setDeliveryType(t) { STATE.deliveryType = t; STATE.selectedBaladia = ""; render(); }
+function setPayment(p) { STATE.paymentMethod = p; render(); }
+function onWilayaChange(code) { STATE.selectedWilaya = code; STATE.selectedBaladia = ""; render(); }
+function onBaladiaChange(val) { STATE.selectedBaladia = val; render(); }
+function closeSuccess() { STATE.showSuccess = false; render(); }
+
+/* =========================================================================
+   9. ORDER SUBMISSION
+   ========================================================================= */
+function validateOrder() {
+  const f = STATE.form || {};
+  if (cartCount() === 0) return "الرجاء إضافة منتج واحد على الأقل إلى السلة";
+  if (!f.firstName) return "الرجاء إدخال الاسم الأول";
+  if (!f.lastName) return "الرجاء إدخال اللقب";
+  if (!f.instagram) return "الرجاء إدخال اسم المستخدم على إنستغرام";
+  if (!f.phone1) return "الرجاء إدخال رقم الهاتف الأول";
+  if (!STATE.selectedWilaya) return "الرجاء اختيار الولاية";
+  if (!STATE.selectedBaladia) return "الرجاء اختيار البلدية / المكتب";
+  return null;
+}
+
+function submitOrder() {
+  const err = validateOrder();
+  if (err) { showToast(err, false); return; }
+
+  STATE.submitting = true; render();
+
+  const items = Object.entries(STATE.cart).map(([pid,qty]) => {
+    const p = STATE.products[pid];
+    return { name: p?.name || pid, price: p?.price || 0, qty, lineTotal: (p?.price||0)*qty };
+  });
+
+  const orderData = {
+    customer: { ...STATE.form },
+    delivery: {
+      type: STATE.deliveryType,
+      wilayaCode: STATE.selectedWilaya,
+      wilayaName: STATE.wilayas.find(w=>w.code===STATE.selectedWilaya)?.name || "",
+      baladia: STATE.selectedBaladia,
+      fee: currentDeliveryFee()
+    },
+    payment: STATE.paymentMethod,
+    items,
+    subtotal: cartSubtotal(),
+    total: grandTotal(),
+    status: "قيد الانتظار",
+    createdAt: Date.now()
+  };
+
+  db.ref("orders").push(orderData)
+    .then(() => {
+      sendOrderEmail(orderData);
+      STATE.cart = {};
+      STATE.submitting = false;
+      STATE.showSuccess = true;
+      render();
+    })
+    .catch(e => {
+      STATE.submitting = false;
+      showToast("حدث خطأ أثناء إرسال الطلب، حاول مجدداً", false);
+      render();
+      console.error(e);
+    });
+}
+
+function sendOrderEmail(order) {
+  if (!window.emailjs || EMAILJS_PUBLIC_KEY === "YOUR_EMAILJS_PUBLIC_KEY") {
+    console.warn("EmailJS غير مُهيأ — تم حفظ الطلب في قاعدة البيانات فقط.");
+    return;
+  }
+  const itemsTable = order.items.map(i => `${i.name} × ${i.qty} = ${i.lineTotal} د.ج`).join("\n");
+  const params = {
+    to_email: STORE_OWNER_EMAIL,
+    customer_name: `${order.customer.firstName} ${order.customer.lastName}`,
+    instagram: order.customer.instagram,
+    phone1: order.customer.phone1,
+    phone2: order.customer.phone2 || "-",
+    delivery_type: order.delivery.type === "home" ? "توصيل للمنزل" : "توصيل للمكتب",
+    wilaya: order.delivery.wilayaName,
+    baladia: order.delivery.baladia,
+    payment: order.payment === "cod" ? "الدفع عند الاستلام" : "دفع مسبق",
+    items: itemsTable,
+    delivery_fee: order.delivery.fee,
+    total: order.total
+  };
+  emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params)
+    .catch(e => console.warn("فشل إرسال البريد الإلكتروني:", e));
+}
+
+/* =========================================================================
+   10. XSS-SAFE HELPERS
+   ========================================================================= */
+function escapeHtml(str) {
+  return String(str ?? "").replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+}
+function escapeAttr(str) { return escapeHtml(str); }
+
+/* =========================================================================
+   11. ADMIN — AUTH
+   ========================================================================= */
+function renderAdminLogin() {
+  return `
+  <div class="min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl border border-hair p-8 max-w-sm w-full fade-in">
+      <h2 class="font-heading font-extrabold text-xl mb-1 text-center">لوحة التحكم</h2>
+      <p class="text-xs text-ink/50 text-center mb-5">الرجاء إدخال كلمة المرور للمتابعة</p>
+      <input id="adminPin" type="password" placeholder="كلمة المرور"
+        class="w-full border border-hair rounded-lg px-3 py-3 bg-cream text-sm mb-3 text-center"
+        onkeydown="if(event.key==='Enter') adminLogin()">
+      <button onclick="adminLogin()" class="w-full py-3 rounded-xl bg-clay hover:bg-clayDark text-white font-heading font-bold text-sm transition">دخول</button>
+      <a href="#" class="block text-center text-xs text-ink/40 mt-4 hover:text-clayDark">العودة للمتجر</a>
+    </div>
+  </div>`;
+}
+function adminLogin() {
+  const val = document.getElementById("adminPin").value;
+  if (val === (STATE.settings.adminPassword || FALLBACK_SETTINGS.adminPassword)) {
+    STATE.isAdmin = true;
+    render();
+  } else {
+    showToast("كلمة المرور غير صحيحة", false);
+  }
+}
+function adminLogout() { STATE.isAdmin = false; render(); }
+
+/* =========================================================================
+   12. ADMIN — DASHBOARD
+   ========================================================================= */
+function setAdminTab(t) { STATE.adminTab = t; render(); }
+
+function renderAdmin() {
+  if (!STATE.isAdmin) return renderAdminLogin();
+  const tabs = [
+    {id:"orders", label:"الطلبات"},
+    {id:"products", label:"المنتجات"},
+    {id:"shipping", label:"الشحن والمكاتب"},
+    {id:"branding", label:"الهوية والبانير"},
+  ];
+  return `
+  <div class="min-h-screen">
+    <header class="bg-white border-b border-hair px-4 py-4 flex items-center justify-between sticky top-0 z-30">
+      <h1 class="font-heading font-extrabold text-lg">لوحة تحكم المتجر</h1>
+      <div class="flex items-center gap-3">
+        <a href="#" class="text-xs text-ink/50 hover:text-clayDark">عرض المتجر</a>
+        <button onclick="adminLogout()" class="text-xs px-3 py-1.5 rounded-lg border border-hair hover:bg-hair">خروج</button>
+      </div>
+    </header>
+    <div class="max-w-5xl mx-auto px-4 py-6">
+      <div class="flex gap-2 mb-6 overflow-x-auto pb-1">
+        ${tabs.map(t => `<button onclick="setAdminTab('${t.id}')" class="px-4 py-2 rounded-lg font-heading font-bold text-xs whitespace-nowrap border transition ${STATE.adminTab===t.id ? 'tab-active border-clay' : 'border-hair text-ink/60'}">${t.label}</button>`).join("")}
+      </div>
+      <div class="fade-in">
+        ${STATE.adminTab === "orders" ? renderAdminOrders() : ""}
+        ${STATE.adminTab === "products" ? renderAdminProducts() : ""}
+        ${STATE.adminTab === "shipping" ? renderAdminShipping() : ""}
+        ${STATE.adminTab === "branding" ? renderAdminBranding() : ""}
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---- Orders Tab ---- */
+function renderAdminOrders() {
+  const filter = STATE.orderFilter || "الكل";
+  const statuses = ["الكل","قيد الانتظار","تم التأكيد","ملغى"];
+  let orders = Object.entries(STATE.orders || {}).sort((a,b) => (b[1].createdAt||0)-(a[1].createdAt||0));
+  if (filter !== "الكل") orders = orders.filter(([id,o]) => o.status === filter);
+
+  return `
+  <div>
+    <div class="flex gap-2 mb-4">
+      ${statuses.map(s => `<button onclick="setOrderFilter('${s}')" class="px-3 py-1.5 rounded-lg text-xs font-bold border ${filter===s?'tab-active border-clay':'border-hair text-ink/60'}">${s}</button>`).join("")}
+    </div>
+    <div class="space-y-3">
+      ${orders.length === 0 ? `<p class="text-center text-ink/40 py-10">لا توجد طلبات</p>` : ""}
+      ${orders.map(([id,o]) => `
+        <div class="bg-white border border-hair rounded-xl p-4">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div>
+              <span class="font-heading font-bold text-sm">${escapeHtml(o.customer?.firstName||"")} ${escapeHtml(o.customer?.lastName||"")}</span>
+              <span class="text-xs text-ink/40"> — ${new Date(o.createdAt).toLocaleString("ar-DZ")}</span>
+            </div>
+            <select onchange="updateOrderStatus('${id}', this.value)" class="text-xs border border-hair rounded-lg px-2 py-1 bg-cream">
+              ${["قيد الانتظار","تم التأكيد","ملغى"].map(s => `<option value="${s}" ${o.status===s?"selected":""}>${s}</option>`).join("")}
+            </select>
+          </div>
+          <div class="text-xs text-ink/60 grid grid-cols-2 md:grid-cols-4 gap-1 mb-2">
+            <span>📷 ${escapeHtml(o.customer?.instagram||"-")}</span>
+            <span>📞 ${escapeHtml(o.customer?.phone1||"-")}</span>
+            <span>📍 ${escapeHtml(o.delivery?.wilayaName||"")} - ${escapeHtml(o.delivery?.baladia||"")}</span>
+            <span>💳 ${o.payment === "cod" ? "عند الاستلام" : "دفع مسبق"}</span>
+          </div>
+          <div class="text-xs bg-cream rounded-lg p-2 mb-2">
+            ${(o.items||[]).map(i => `<div class="flex justify-between"><span>${escapeHtml(i.name)} × ${i.qty}</span><span>${fmtDZD(i.lineTotal)}</span></div>`).join("")}
+          </div>
+          <div class="flex justify-between text-xs font-bold">
+            <span>التوصيل: ${fmtDZD(o.delivery?.fee)}</span>
+            <span class="text-clayDark">الإجمالي: ${fmtDZD(o.total)}</span>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  </div>`;
+}
+function setOrderFilter(s) { STATE.orderFilter = s; render(); }
+function updateOrderStatus(id, status) {
+  db.ref("orders/"+id+"/status").set(status).then(()=>showToast("تم تحديث حالة الطلب"));
+}
+
+/* ---- Products Tab ---- */
+function renderAdminProducts() {
+  const products = Object.entries(STATE.products || {});
+  return `
+  <div>
+    <div class="flex justify-between items-center mb-4">
+      <h2 class="font-heading font-bold text-lg">المنتجات (${products.length})</h2>
+      <button onclick="openProductForm()" class="px-4 py-2 rounded-lg bg-clay hover:bg-clayDark text-white text-xs font-bold">+ منتج جديد</button>
+    </div>
+    ${STATE.productFormOpen ? renderProductForm() : ""}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      ${products.map(([pid,p]) => `
+        <div class="bg-white border border-hair rounded-xl p-3 flex gap-3">
+          <div class="w-16 h-16 rounded-lg bg-hair overflow-hidden flex-shrink-0">${p.image?`<img src="${escapeAttr(p.image)}" class="w-full h-full object-cover">`:""}</div>
+          <div class="flex-1 min-w-0">
+            <p class="font-heading font-bold text-sm truncate">${escapeHtml(p.name)}</p>
+            <p class="text-xs text-ink/50 truncate">${escapeHtml(p.desc||"")}</p>
+            <p class="text-xs font-bold text-clayDark">${fmtDZD(p.price)} ${p.active===false?'<span class="text-red-500">(غير مفعل)</span>':''}</p>
+          </div>
+          <div class="flex flex-col gap-1">
+            <button onclick="openProductForm('${pid}')" class="text-xs px-2 py-1 border border-hair rounded-lg hover:bg-hair">تعديل</button>
+            <button onclick="deleteProduct('${pid}')" class="text-xs px-2 py-1 border border-red-200 text-red-500 rounded-lg hover:bg-red-50">حذف</button>
+          </div>
+        </div>
+      `).join("")}
+    </div>
+  </div>`;
+}
+function openProductForm(pid) {
+  STATE.productFormOpen = true;
+  STATE.editingProduct = pid || null;
+  render();
+}
+function closeProductForm() { STATE.productFormOpen = false; STATE.editingProduct = null; render(); }
+function renderProductForm() {
+  const p = STATE.editingProduct ? STATE.products[STATE.editingProduct] : {name:"",desc:"",price:"",image:"",active:true};
+  return `
+  <div class="bg-white border border-hair rounded-xl p-4 mb-4 fade-in">
+    <h3 class="font-heading font-bold text-sm mb-3">${STATE.editingProduct ? "تعديل المنتج" : "منتج جديد"}</h3>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+      <input id="pf_name" placeholder="اسم المنتج" value="${escapeAttr(p.name)}" class="border border-hair rounded-lg px-3 py-2 text-sm bg-cream">
+      <input id="pf_price" type="number" placeholder="السعر (د.ج)" value="${escapeAttr(p.price)}" class="border border-hair rounded-lg px-3 py-2 text-sm bg-cream">
+      <input id="pf_image" placeholder="رابط الصورة" value="${escapeAttr(p.image)}" class="border border-hair rounded-lg px-3 py-2 text-sm bg-cream md:col-span-2">
+      <textarea id="pf_desc" placeholder="الوصف" class="border border-hair rounded-lg px-3 py-2 text-sm bg-cream md:col-span-2">${escapeHtml(p.desc)}</textarea>
+      <label class="flex items-center gap-2 text-xs md:col-span-2">
+        <input id="pf_active" type="checkbox" ${p.active!==false?"checked":""}> منتج مفعّل (يظهر للزبائن)
+      </label>
+    </div>
+    <div class="flex gap-2">
+      <button onclick="saveProduct()" class="px-4 py-2 rounded-lg bg-clay hover:bg-clayDark text-white text-xs font-bold">حفظ</button>
+      <button onclick="closeProductForm()" class="px-4 py-2 rounded-lg border border-hair text-xs font-bold">إلغاء</button>
+    </div>
+  </div>`;
+}
+function saveProduct() {
+  const data = {
+    name: document.getElementById("pf_name").value.trim(),
+    price: Number(document.getElementById("pf_price").value)||0,
+    image: document.getElementById("pf_image").value.trim(),
+    desc: document.getElementById("pf_desc").value.trim(),
+    active: document.getElementById("pf_active").checked
+  };
+  if (!data.name) { showToast("الرجاء إدخال اسم المنتج", false); return; }
+  const ref = STATE.editingProduct ? db.ref("products/"+STATE.editingProduct) : db.ref("products").push();
+  ref.set(data).then(() => { showToast("تم الحفظ بنجاح"); closeProductForm(); });
+}
+function deleteProduct(pid) {
+  if (!confirm("هل أنت متأكد من حذف هذا المنتج؟")) return;
+  db.ref("products/"+pid).remove().then(()=>showToast("تم الحذف"));
+}
+
+/* ---- Shipping & Desks Tab ---- */
+function renderAdminShipping() {
+  return `
+  <div class="space-y-6">
+    <div class="bg-white border border-hair rounded-xl p-4">
+      <h3 class="font-heading font-bold text-sm mb-3">أسعار التوصيل للمنزل حسب الولاية</h3>
+      <div class="max-h-96 overflow-y-auto space-y-2">
+        ${STATE.wilayas.map(w => `
+          <div class="flex items-center gap-2">
+            <span class="text-xs w-32 flex-shrink-0">${w.code} - ${w.name}</span>
+            <input type="number" value="${STATE.shipping[w.code]?.home ?? 0}" onchange="updateShipping('${w.code}','home',this.value)" class="flex-1 border border-hair rounded-lg px-2 py-1 text-xs bg-cream" placeholder="سعر المنزل">
+            <input type="number" value="${STATE.shipping[w.code]?.desk ?? 0}" onchange="updateShipping('${w.code}','desk',this.value)" class="flex-1 border border-hair rounded-lg px-2 py-1 text-xs bg-cream" placeholder="سعر المكتب الافتراضي">
+          </div>
+        `).join("")}
+      </div>
+    </div>
+
+    <div class="bg-white border border-hair rounded-xl p-4">
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="font-heading font-bold text-sm">مكاتب التوصيل (Stop Desk)</h3>
+        <button onclick="openDeskForm()" class="px-3 py-1.5 rounded-lg bg-clay hover:bg-clayDark text-white text-xs font-bold">+ مكتب جديد</button>
+      </div>
+      ${STATE.deskFormOpen ? renderDeskForm() : ""}
+      <div class="space-y-2">
+        ${Object.entries(STATE.desks||{}).map(([id,d]) => `
+          <div class="flex items-center justify-between text-xs border border-hair rounded-lg p-2">
+            <span>${STATE.wilayas.find(w=>w.code===d.wilayaCode)?.name||d.wilayaCode} - ${escapeHtml(d.baladia)} — ${escapeHtml(d.address||"")} (${fmtDZD(d.fee)})</span>
+            <button onclick="deleteDesk('${id}')" class="text-red-500 px-2">حذف</button>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  </div>`;
+}
+function updateShipping(code, type, value) {
+  db.ref("shipping/"+code+"/"+type).set(Number(value)||0);
+}
+function openDeskForm() { STATE.deskFormOpen = true; render(); }
+function closeDeskForm() { STATE.deskFormOpen = false; render(); }
+function renderDeskForm() {
+  return `
+  <div class="border border-hair rounded-lg p-3 mb-3 grid grid-cols-1 md:grid-cols-2 gap-2 fade-in">
+    <select id="df_wilaya" class="border border-hair rounded-lg px-2 py-2 text-xs bg-cream">
+      ${STATE.wilayas.map(w=>`<option value="${w.code}">${w.code} - ${w.name}</option>`).join("")}
+    </select>
+    <input id="df_baladia" placeholder="اسم البلدية / المكتب" class="border border-hair rounded-lg px-2 py-2 text-xs bg-cream">
+    <input id="df_address" placeholder="عنوان المكتب" class="border border-hair rounded-lg px-2 py-2 text-xs bg-cream md:col-span-2">
+    <input id="df_fee" type="number" placeholder="سعر التوصيل" class="border border-hair rounded-lg px-2 py-2 text-xs bg-cream">
+    <div class="flex gap-2">
+      <button onclick="saveDesk()" class="px-3 py-2 rounded-lg bg-clay hover:bg-clayDark text-white text-xs font-bold">حفظ</button>
+      <button onclick="closeDeskForm()" class="px-3 py-2 rounded-lg border border-hair text-xs font-bold">إلغاء</button>
+    </div>
+  </div>`;
+}
+function saveDesk() {
+  const data = {
+    wilayaCode: document.getElementById("df_wilaya").value,
+    baladia: document.getElementById("df_baladia").value.trim(),
+    address: document.getElementById("df_address").value.trim(),
+    fee: Number(document.getElementById("df_fee").value)||0
+  };
+  if (!data.baladia) { showToast("الرجاء إدخال اسم المكتب", false); return; }
+  db.ref("desks").push(data).then(()=>{ showToast("تم إضافة المكتب"); closeDeskForm(); });
+}
+function deleteDesk(id) {
+  if (!confirm("حذف هذا المكتب؟")) return;
+  db.ref("desks/"+id).remove().then(()=>showToast("تم الحذف"));
+}
+
+/* ---- Branding Tab ---- */
+function renderAdminBranding() {
+  const s = STATE.settings;
+  return `
+  <div class="bg-white border border-hair rounded-xl p-4 max-w-lg space-y-3">
+    <h3 class="font-heading font-bold text-sm mb-2">الهوية والبانير</h3>
+    <div>
+      <label class="block text-xs font-bold text-ink/70 mb-1">اسم المتجر</label>
+      <input id="br_name" value="${escapeAttr(s.storeName)}" class="w-full border border-hair rounded-lg px-3 py-2 text-sm bg-cream">
+    </div>
+    <div>
+      <label class="block text-xs font-bold text-ink/70 mb-1">رابط الشعار (Logo)</label>
+      <input id="br_logo" value="${escapeAttr(s.logoUrl)}" class="w-full border border-hair rounded-lg px-3 py-2 text-sm bg-cream">
+    </div>
+    <div>
+      <label class="block text-xs font-bold text-ink/70 mb-1">رابط صورة الغلاف (Banner)</label>
+      <input id="br_banner" value="${escapeAttr(s.bannerUrl)}" class="w-full border border-hair rounded-lg px-3 py-2 text-sm bg-cream">
+    </div>
+    <div>
+      <label class="block text-xs font-bold text-ink/70 mb-1">رابط صورة التعليمات (اختياري)</label>
+      <input id="br_info" value="${escapeAttr(s.infoGraphicUrl)}" class="w-full border border-hair rounded-lg px-3 py-2 text-sm bg-cream">
+    </div>
+    <div>
+      <label class="block text-xs font-bold text-ink/70 mb-1">كلمة مرور لوحة التحكم</label>
+      <input id="br_pass" value="${escapeAttr(s.adminPassword)}" class="w-full border border-hair rounded-lg px-3 py-2 text-sm bg-cream">
+    </div>
+    <button onclick="saveBranding()" class="px-4 py-2 rounded-lg bg-clay hover:bg-clayDark text-white text-xs font-bold">حفظ التغييرات</button>
+  </div>`;
+}
+function saveBranding() {
+  const data = {
+    storeName: document.getElementById("br_name").value.trim() || "متجرنا",
+    logoUrl: document.getElementById("br_logo").value.trim(),
+    bannerUrl: document.getElementById("br_banner").value.trim(),
+    infoGraphicUrl: document.getElementById("br_info").value.trim(),
+    adminPassword: document.getElementById("br_pass").value.trim() || "admin123"
+  };
+  db.ref("settings").update(data).then(()=>showToast("تم حفظ الهوية بنجاح"));
+}
+
+/* =========================================================================
+   13. MASTER RENDER
+   ========================================================================= */
+function render() {
+  const app = document.getElementById("app");
+  app.innerHTML = isAdminRoute() ? renderAdmin() : renderStorefront();
+}
+
+/* =========================================================================
+   14. INIT
+   ========================================================================= */
+initFirebaseListeners();
+render();
+</script>
+</body>
+</html>
