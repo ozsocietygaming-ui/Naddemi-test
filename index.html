@@ -557,7 +557,7 @@ function sendOrderEmail(order) {
     delivery_fee: order.delivery.fee,
     total: order.total
   };
-  emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params)
+  emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, params, EMAILJS_PUBLIC_KEY)
     .catch(e => console.warn("فشل إرسال البريد الإلكتروني:", e));
 }
 
