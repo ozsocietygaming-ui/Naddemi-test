@@ -96,7 +96,7 @@ const EMAILJS_SERVICE_ID  = "service_OzGmail";
 const EMAILJS_TEMPLATE_ID = "template_0vfok9f";
 const STORE_OWNER_EMAIL   = "ozsocietygaming@gmail.com";
 try {
-  if (window.emailjs && EMAILJS_PUBLIC_KEY !== "vu5Mg-9fcb_-5gRrP") {
+  if (window.emailjs && EMAILJS_PUBLIC_KEY !== "YOUR_EMAILJS_PUBLIC_KEY") {
     emailjs.init({ publicKey: EMAILJS_PUBLIC_KEY });
   }
 } catch(e) { console.warn("EmailJS init skipped:", e); }
@@ -538,7 +538,7 @@ function submitOrder() {
 }
 
 function sendOrderEmail(order) {
-  if (!window.emailjs || EMAILJS_PUBLIC_KEY === "vu5Mg-9fcb_-5gRrP") {
+  if (!window.emailjs || EMAILJS_PUBLIC_KEY === "YOUR_EMAILJS_PUBLIC_KEY") {
     console.warn("EmailJS غير مُهيأ — تم حفظ الطلب في قاعدة البيانات فقط.");
     return;
   }
