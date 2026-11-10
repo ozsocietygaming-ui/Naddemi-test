@@ -16,6 +16,7 @@
 <!-- Firebase (compat SDK) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 
 <!-- EmailJS -->
 <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
@@ -87,13 +88,17 @@ const firebaseConfig = {
 };
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
+const auth = firebase.auth();
+
+/* البريد الوحيد المسموح له بدخول لوحة التحكم (يجب أن يطابق قواعد قاعدة البيانات) */
+const ADMIN_EMAIL = "ozsocietygaming@gmail.com";
 
 /* =========================================================================
    2. EMAILJS CONFIG  (⚠️ عدّل هذه القيم من لوحة تحكم EmailJS الخاصة بك)
    ========================================================================= */
-const EMAILJS_PUBLIC_KEY  = "vu5Mg-9fcb_-5gRrP";
-const EMAILJS_SERVICE_ID  = "service_OzGmail";
-const EMAILJS_TEMPLATE_ID = "template_0vfok9f";
+const EMAILJS_PUBLIC_KEY  = "YOUR_EMAILJS_PUBLIC_KEY";
+const EMAILJS_SERVICE_ID  = "YOUR_EMAILJS_SERVICE_ID";
+const EMAILJS_TEMPLATE_ID = "YOUR_EMAILJS_TEMPLATE_ID";
 const STORE_OWNER_EMAIL   = "ozsocietygaming@gmail.com";
 try {
   if (window.emailjs && EMAILJS_PUBLIC_KEY !== "YOUR_EMAILJS_PUBLIC_KEY") {
@@ -108,8 +113,7 @@ const FALLBACK_SETTINGS = {
   storeName: "متجرنا",
   logoUrl: "",
   bannerUrl: "",
-  infoGraphicUrl: "",
-  adminPassword: "admin123"
+  infoGraphicUrl: ""
 };
 
 const FALLBACK_PRODUCTS = {
@@ -207,6 +211,8 @@ let STATE = {
   selectedBaladia: "",
   paymentMethod: "cod",
   isAdmin: false,
+  authReady: false,
+  adminUser: null,
   adminTab: "orders"
 };
 
@@ -234,8 +240,41 @@ function initFirebaseListeners() {
     STATE.desks = v || {};
     render();
   });
-  db.ref("orders").on("value", snap => {
-    STATE.orders = snap.val() || {};
+  // ملاحظة: مسار /orders محمي ولا يُقرأ إلا بعد تسجيل دخول الأدمن (انظر initAuth)
+}
+
+/* =========================================================================
+   5b. FIREBASE AUTH (Google) — تسجيل دخول الأدمن
+   ========================================================================= */
+function startOrdersListener() {
+  db.ref("orders").on("value",
+    snap => { STATE.orders = snap.val() || {}; render(); },
+    err => { console.warn("تعذّر قراءة الطلبات:", err.message); showToast("ليس لديك صلاحية قراءة الطلبات", false); }
+  );
+}
+function stopOrdersListener() {
+  db.ref("orders").off();
+  STATE.orders = {};
+}
+
+function initAuth() {
+  auth.onAuthStateChanged(user => {
+    const allowed = !!user && user.emailVerified && (user.email || "").toLowerCase() === ADMIN_EMAIL;
+    if (user && !allowed) {
+      // حساب غير مصرّح له: إنهاء الجلسة فوراً
+      auth.signOut();
+      showToast("هذا الحساب غير مصرّح له بدخول لوحة التحكم", false);
+      STATE.isAdmin = false; STATE.adminUser = null;
+    } else if (allowed) {
+      STATE.isAdmin = true; STATE.adminUser = user.email;
+      startOrdersListener();
+      // تنظيف: حذف كلمة المرور القديمة إن كانت لا تزال مخزّنة في قاعدة البيانات
+      db.ref("settings/adminPassword").remove().catch(() => {});
+    } else {
+      stopOrdersListener();
+      STATE.isAdmin = false; STATE.adminUser = null;
+    }
+    STATE.authReady = true;
     render();
   });
 }
@@ -488,6 +527,7 @@ function validateOrder() {
   if (!f.lastName) return "الرجاء إدخال اللقب";
   if (!f.instagram) return "الرجاء إدخال اسم المستخدم على إنستغرام";
   if (!f.phone1) return "الرجاء إدخال رقم الهاتف الأول";
+  if (f.phone1.trim().length < 8 || f.phone1.trim().length > 20) return "رقم الهاتف الأول غير صالح";
   if (!STATE.selectedWilaya) return "الرجاء اختيار الولاية";
   if (!STATE.selectedBaladia) return "الرجاء اختيار البلدية / المكتب";
   return null;
@@ -573,29 +613,36 @@ function escapeAttr(str) { return escapeHtml(str); }
    11. ADMIN — AUTH
    ========================================================================= */
 function renderAdminLogin() {
+  if (!STATE.authReady) {
+    return `<div class="min-h-screen flex items-center justify-center"><span class="inline-block w-6 h-6 border-2 border-clay/40 border-t-clay rounded-full spin"></span></div>`;
+  }
   return `
   <div class="min-h-screen flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl border border-hair p-8 max-w-sm w-full fade-in">
-      <h2 class="font-heading font-extrabold text-xl mb-1 text-center">لوحة التحكم</h2>
-      <p class="text-xs text-ink/50 text-center mb-5">الرجاء إدخال كلمة المرور للمتابعة</p>
-      <input id="adminPin" type="password" placeholder="كلمة المرور"
-        class="w-full border border-hair rounded-lg px-3 py-3 bg-cream text-sm mb-3 text-center"
-        onkeydown="if(event.key==='Enter') adminLogin()">
-      <button onclick="adminLogin()" class="w-full py-3 rounded-xl bg-clay hover:bg-clayDark text-white font-heading font-bold text-sm transition">دخول</button>
+    <div class="bg-white rounded-2xl border border-hair p-8 max-w-sm w-full fade-in text-center">
+      <h2 class="font-heading font-extrabold text-xl mb-1">لوحة التحكم</h2>
+      <p class="text-xs text-ink/50 mb-6">الدخول مسموح فقط لحساب مالك المتجر</p>
+      <button onclick="adminLogin()" class="w-full py-3 rounded-xl bg-clay hover:bg-clayDark text-white font-heading font-bold text-sm transition flex items-center justify-center gap-2">
+        تسجيل الدخول بحساب Google
+      </button>
       <a href="#" class="block text-center text-xs text-ink/40 mt-4 hover:text-clayDark">العودة للمتجر</a>
     </div>
   </div>`;
 }
 function adminLogin() {
-  const val = document.getElementById("adminPin").value;
-  if (val === (STATE.settings.adminPassword || FALLBACK_SETTINGS.adminPassword)) {
-    STATE.isAdmin = true;
-    render();
-  } else {
-    showToast("كلمة المرور غير صحيحة", false);
-  }
+  const provider = new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account", login_hint: ADMIN_EMAIL });
+  auth.signInWithPopup(provider).catch(e => {
+    console.warn("Auth error:", e.code, e.message);
+    const msgs = {
+      "auth/popup-blocked": "المتصفح حجب النافذة المنبثقة، اسمح بها ثم أعد المحاولة",
+      "auth/popup-closed-by-user": "تم إغلاق نافذة تسجيل الدخول",
+      "auth/unauthorized-domain": "نطاق الموقع غير مضاف في Firebase (Authorized domains)",
+      "auth/operation-not-allowed": "تسجيل الدخول بـ Google غير مفعّل في Firebase"
+    };
+    showToast(msgs[e.code] || "تعذّر تسجيل الدخول", false);
+  });
 }
-function adminLogout() { STATE.isAdmin = false; render(); }
+function adminLogout() { auth.signOut(); }
 
 /* =========================================================================
    12. ADMIN — DASHBOARD
@@ -615,6 +662,7 @@ function renderAdmin() {
     <header class="bg-white border-b border-hair px-4 py-4 flex items-center justify-between sticky top-0 z-30">
       <h1 class="font-heading font-extrabold text-lg">لوحة تحكم المتجر</h1>
       <div class="flex items-center gap-3">
+        <span class="text-xs text-ink/40 hidden md:inline" dir="ltr">${escapeHtml(STATE.adminUser||"")}</span>
         <a href="#" class="text-xs text-ink/50 hover:text-clayDark">عرض المتجر</a>
         <button onclick="adminLogout()" class="text-xs px-3 py-1.5 rounded-lg border border-hair hover:bg-hair">خروج</button>
       </div>
@@ -843,10 +891,6 @@ function renderAdminBranding() {
       <label class="block text-xs font-bold text-ink/70 mb-1">رابط صورة التعليمات (اختياري)</label>
       <input id="br_info" value="${escapeAttr(s.infoGraphicUrl)}" class="w-full border border-hair rounded-lg px-3 py-2 text-sm bg-cream">
     </div>
-    <div>
-      <label class="block text-xs font-bold text-ink/70 mb-1">كلمة مرور لوحة التحكم</label>
-      <input id="br_pass" value="${escapeAttr(s.adminPassword)}" class="w-full border border-hair rounded-lg px-3 py-2 text-sm bg-cream">
-    </div>
     <button onclick="saveBranding()" class="px-4 py-2 rounded-lg bg-clay hover:bg-clayDark text-white text-xs font-bold">حفظ التغييرات</button>
   </div>`;
 }
@@ -855,8 +899,7 @@ function saveBranding() {
     storeName: document.getElementById("br_name").value.trim() || "متجرنا",
     logoUrl: document.getElementById("br_logo").value.trim(),
     bannerUrl: document.getElementById("br_banner").value.trim(),
-    infoGraphicUrl: document.getElementById("br_info").value.trim(),
-    adminPassword: document.getElementById("br_pass").value.trim() || "admin123"
+    infoGraphicUrl: document.getElementById("br_info").value.trim()
   };
   db.ref("settings").update(data).then(()=>showToast("تم حفظ الهوية بنجاح"));
 }
@@ -873,6 +916,7 @@ function render() {
    14. INIT
    ========================================================================= */
 initFirebaseListeners();
+initAuth();
 render();
 </script>
 </body>
