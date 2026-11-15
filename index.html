@@ -110,7 +110,7 @@ try {
    3. FALLBACK / SEED DATA (تُستخدم قبل ضبط لوحة التحكم)
    ========================================================================= */
 const FALLBACK_SETTINGS = {
-  storeName: "متجر نظمي",
+  storeName: "متجرنا",
   logoUrl: "",
   bannerUrl: "",
   infoGraphicUrl: ""
@@ -383,8 +383,9 @@ function renderStorefront() {
         <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
           ${products.map(([pid,p]) => `
             <div class="hover-lift bg-white rounded-xl border border-hair overflow-hidden flex flex-col">
-              <div class="h-32 md:h-40 bg-hair overflow-hidden">
+              <div class="relative h-32 md:h-40 bg-hair overflow-hidden ${p.image ? 'cursor-pointer' : ''}" ${p.image ? `onclick="openGallery('${pid}')"` : ""}>
                 ${p.image ? `<img src="${escapeAttr(p.image)}" class="w-full h-full object-cover" alt="${escapeAttr(p.name)}">` : ""}
+                ${(p.imageCount||0) > 1 ? `<span class="absolute bottom-2 left-2 bg-ink/70 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">+${p.imageCount - 1} صور</span>` : ""}
               </div>
               <div class="p-3 flex-1 flex flex-col gap-1">
                 <h3 class="font-heading font-bold text-sm">${escapeHtml(p.name)}</h3>
@@ -480,6 +481,9 @@ function renderStorefront() {
         </button>
       </div>
     </div>` : ""}
+
+    <!-- Product Gallery Modal -->
+    ${STATE.gallery ? renderGallery() : ""}
 
     <!-- Success Modal -->
     ${STATE.showSuccess ? `
@@ -730,6 +734,11 @@ function updateOrderStatus(id, status) {
 }
 
 /* ---- Products Tab ---- */
+// صور المنتج: حتى 4 صور. الصورة المصغّرة تُخزَّن مع المنتج (/products) والصور الكاملة في /productImages
+// حتى تبقى صفحة المتجر خفيفة، وتُحمَّل الصور الكاملة فقط عند فتح المعرض.
+const MAX_PRODUCT_IMAGES = 4;
+const PRODUCT_IMG_CFG = { maxW: 900, maxH: 900, type: "image/jpeg", quality: 0.8, maxChars: 220000 };
+
 function renderAdminProducts() {
   const products = Object.entries(STATE.products || {});
   return `
@@ -757,47 +766,195 @@ function renderAdminProducts() {
     </div>
   </div>`;
 }
+
 function openProductForm(pid) {
+  const p = pid ? STATE.products[pid] : null;
   STATE.productFormOpen = true;
   STATE.editingProduct = pid || null;
+  STATE.productDraft = {
+    name: p?.name || "", desc: p?.desc || "", price: p?.price ?? "", active: p ? p.active !== false : true,
+    images: p?.image ? [p.image] : [],   // مؤقتاً: الصورة المصغّرة/الرابط القديم حتى تُحمَّل الصور الكاملة
+    loadingImages: !!pid, busy: false
+  };
   render();
+  if (pid) {
+    db.ref("productImages/" + pid).once("value").then(snap => {
+      if (STATE.editingProduct !== pid || !STATE.productDraft) return;
+      const v = snap.val();
+      const list = Array.isArray(v) ? v : (v ? Object.values(v) : []);
+      if (list.length) STATE.productDraft.images = list.filter(Boolean);
+      STATE.productDraft.loadingImages = false;
+      render();
+    }).catch(() => { if (STATE.productDraft) { STATE.productDraft.loadingImages = false; render(); } });
+  }
 }
-function closeProductForm() { STATE.productFormOpen = false; STATE.editingProduct = null; render(); }
+function closeProductForm() { STATE.productFormOpen = false; STATE.editingProduct = null; STATE.productDraft = null; render(); }
+
 function renderProductForm() {
-  const p = STATE.editingProduct ? STATE.products[STATE.editingProduct] : {name:"",desc:"",price:"",image:"",active:true};
+  const d = STATE.productDraft || { name:"", desc:"", price:"", active:true, images:[] };
+  const slots = [];
+  for (let i = 0; i < MAX_PRODUCT_IMAGES; i++) {
+    const img = d.images[i];
+    slots.push(img ? `
+      <div class="relative aspect-square rounded-lg overflow-hidden border border-hair bg-cream">
+        <img src="${escapeAttr(img)}" class="w-full h-full object-cover" alt="">
+        ${i === 0 ? `<span class="absolute top-1 right-1 bg-clay text-white text-[10px] font-bold px-1.5 py-0.5 rounded">رئيسية</span>` : `<button onclick="makeMainProductImage(${i})" class="absolute top-1 right-1 bg-white/90 text-[10px] font-bold px-1.5 py-0.5 rounded">اجعلها رئيسية</button>`}
+        <button onclick="removeProductImage(${i})" class="absolute bottom-1 left-1 bg-red-500 text-white text-xs w-6 h-6 rounded-full leading-none">×</button>
+      </div>` : `
+      <div class="aspect-square rounded-lg border border-dashed border-hair bg-cream flex items-center justify-center text-xs text-ink/30">${i+1}</div>`);
+  }
+  const full = d.images.length >= MAX_PRODUCT_IMAGES;
   return `
   <div class="bg-white border border-hair rounded-xl p-4 mb-4 fade-in">
     <h3 class="font-heading font-bold text-sm mb-3">${STATE.editingProduct ? "تعديل المنتج" : "منتج جديد"}</h3>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
-      <input id="pf_name" placeholder="اسم المنتج" value="${escapeAttr(p.name)}" class="border border-hair rounded-lg px-3 py-2 text-sm bg-cream">
-      <input id="pf_price" type="number" placeholder="السعر (د.ج)" value="${escapeAttr(p.price)}" class="border border-hair rounded-lg px-3 py-2 text-sm bg-cream">
-      <input id="pf_image" placeholder="رابط الصورة" value="${escapeAttr(p.image)}" class="border border-hair rounded-lg px-3 py-2 text-sm bg-cream md:col-span-2">
-      <textarea id="pf_desc" placeholder="الوصف" class="border border-hair rounded-lg px-3 py-2 text-sm bg-cream md:col-span-2">${escapeHtml(p.desc)}</textarea>
+      <input id="pf_name" placeholder="اسم المنتج" value="${escapeAttr(d.name)}" oninput="STATE.productDraft.name=this.value" class="border border-hair rounded-lg px-3 py-2 text-sm bg-cream">
+      <input id="pf_price" type="number" placeholder="السعر (د.ج)" value="${escapeAttr(d.price)}" oninput="STATE.productDraft.price=this.value" class="border border-hair rounded-lg px-3 py-2 text-sm bg-cream">
+      <textarea id="pf_desc" placeholder="الوصف" oninput="STATE.productDraft.desc=this.value" class="border border-hair rounded-lg px-3 py-2 text-sm bg-cream md:col-span-2">${escapeHtml(d.desc)}</textarea>
+      <div class="md:col-span-2">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-xs font-bold text-ink/70">صور المنتج (${d.images.length}/${MAX_PRODUCT_IMAGES})</span>
+          <label class="px-3 py-1.5 rounded-lg bg-clay hover:bg-clayDark text-white text-xs font-bold cursor-pointer transition ${(full || d.busy) ? 'opacity-50 pointer-events-none' : ''}">
+            ${d.busy ? 'جارٍ المعالجة...' : (d.loadingImages ? 'جارٍ تحميل الصور...' : 'إضافة صور')}
+            <input type="file" accept="image/*" multiple class="hidden" onchange="addProductImages(this)">
+          </label>
+        </div>
+        <div class="grid grid-cols-4 gap-2">${slots.join("")}</div>
+      </div>
       <label class="flex items-center gap-2 text-xs md:col-span-2">
-        <input id="pf_active" type="checkbox" ${p.active!==false?"checked":""}> منتج مفعّل (يظهر للزبائن)
+        <input id="pf_active" type="checkbox" ${d.active?"checked":""} onchange="STATE.productDraft.active=this.checked"> منتج مفعّل (يظهر للزبائن)
       </label>
     </div>
     <div class="flex gap-2">
-      <button onclick="saveProduct()" class="px-4 py-2 rounded-lg bg-clay hover:bg-clayDark text-white text-xs font-bold">حفظ</button>
+      <button onclick="saveProduct()" ${d.busy ? "disabled" : ""} class="px-4 py-2 rounded-lg bg-clay hover:bg-clayDark text-white text-xs font-bold ${d.busy ? 'opacity-60' : ''}">حفظ</button>
       <button onclick="closeProductForm()" class="px-4 py-2 rounded-lg border border-hair text-xs font-bold">إلغاء</button>
     </div>
   </div>`;
 }
-function saveProduct() {
-  const data = {
-    name: document.getElementById("pf_name").value.trim(),
-    price: Number(document.getElementById("pf_price").value)||0,
-    image: document.getElementById("pf_image").value.trim(),
-    desc: document.getElementById("pf_desc").value.trim(),
-    active: document.getElementById("pf_active").checked
-  };
-  if (!data.name) { showToast("الرجاء إدخال اسم المنتج", false); return; }
-  const ref = STATE.editingProduct ? db.ref("products/"+STATE.editingProduct) : db.ref("products").push();
-  ref.set(data).then(() => { showToast("تم الحفظ بنجاح"); closeProductForm(); });
+
+async function addProductImages(input) {
+  const d = STATE.productDraft;
+  const files = Array.from(input.files || []);
+  input.value = "";
+  if (!d || !files.length) return;
+  const room = MAX_PRODUCT_IMAGES - d.images.length;
+  if (room <= 0) { showToast("الحد الأقصى 4 صور لكل منتج", false); return; }
+  if (files.length > room) showToast(`تمت إضافة أول ${room} صور فقط (الحد الأقصى 4)`, false);
+  d.busy = true; render();
+  for (const file of files.slice(0, room)) {
+    if (!file.type.startsWith("image/") || file.size > 15 * 1024 * 1024) { showToast("تم تجاهل ملف غير صالح أو كبير جداً", false); continue; }
+    try { d.images.push(await compressImage(file, PRODUCT_IMG_CFG)); }
+    catch (e) { showToast("تعذّر معالجة إحدى الصور", false); }
+  }
+  d.busy = false; render();
+}
+function removeProductImage(i) { STATE.productDraft.images.splice(i, 1); render(); }
+function makeMainProductImage(i) {
+  const imgs = STATE.productDraft.images;
+  imgs.unshift(imgs.splice(i, 1)[0]); render();
+}
+
+// ينشئ صورة مصغّرة (~400px) من الصورة الرئيسية لعرضها في بطاقة المنتج
+function makeThumb(src) {
+  return new Promise(resolve => {
+    if (!src.startsWith("data:")) return resolve(src); // رابط خارجي قديم: يُستخدم كما هو
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, 400 / img.width, 400 / img.height);
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(img.width * scale)); c.height = Math.max(1, Math.round(img.height * scale));
+      const ctx = c.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      resolve(c.toDataURL("image/jpeg", 0.75));
+    };
+    img.onerror = () => resolve(src);
+    img.src = src;
+  });
+}
+
+async function saveProduct() {
+  const d = STATE.productDraft;
+  if (!d) return;
+  const name = (d.name || "").trim();
+  if (!name) { showToast("الرجاء إدخال اسم المنتج", false); return; }
+  if (d.loadingImages) { showToast("انتظر حتى تكتمل صور المنتج", false); return; }
+  d.busy = true; render();
+  try {
+    const id = STATE.editingProduct || db.ref("products").push().key;
+    const images = d.images.slice(0, MAX_PRODUCT_IMAGES);
+    const data = {
+      name, price: Number(d.price) || 0, desc: (d.desc || "").trim(), active: d.active !== false,
+      image: images.length ? await makeThumb(images[0]) : "",
+      imageCount: images.length
+    };
+    await db.ref().update({
+      ["products/" + id]: data,
+      ["productImages/" + id]: images.length ? images : null
+    });
+    showToast("تم الحفظ بنجاح");
+    closeProductForm();
+  } catch (e) {
+    console.warn("saveProduct failed:", e);
+    d.busy = false; render();
+    showToast("تعذّر حفظ المنتج", false);
+  }
 }
 function deleteProduct(pid) {
   if (!confirm("هل أنت متأكد من حذف هذا المنتج؟")) return;
-  db.ref("products/"+pid).remove().then(()=>showToast("تم الحذف"));
+  db.ref().update({ ["products/" + pid]: null, ["productImages/" + pid]: null }).then(() => showToast("تم الحذف"));
+}
+
+/* ---- Product Gallery (storefront) ---- */
+function openGallery(pid) {
+  const p = STATE.products[pid];
+  if (!p) return;
+  STATE.gallery = { pid, idx: 0, images: p.image ? [p.image] : [], loading: (p.imageCount || 0) > 1 };
+  render();
+  if ((p.imageCount || 0) > 1) {
+    db.ref("productImages/" + pid).once("value").then(snap => {
+      if (!STATE.gallery || STATE.gallery.pid !== pid) return;
+      const v = snap.val();
+      const list = Array.isArray(v) ? v : (v ? Object.values(v) : []);
+      if (list.length) STATE.gallery.images = list.filter(Boolean);
+      STATE.gallery.loading = false; render();
+    }).catch(() => { if (STATE.gallery) { STATE.gallery.loading = false; render(); } });
+  }
+}
+function closeGallery() { STATE.gallery = null; render(); }
+function galleryGo(delta) {
+  const g = STATE.gallery; if (!g || !g.images.length) return;
+  g.idx = (g.idx + delta + g.images.length) % g.images.length; render();
+}
+function gallerySet(i) { STATE.gallery.idx = i; render(); }
+function renderGallery() {
+  const g = STATE.gallery, p = STATE.products[g.pid];
+  if (!p) return "";
+  const img = g.images[g.idx] || "";
+  return `
+  <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onclick="if(event.target===this) closeGallery()">
+    <div class="bg-white rounded-2xl max-w-md w-full overflow-hidden fade-in">
+      <div class="relative bg-hair aspect-square flex items-center justify-center">
+        ${img ? `<img src="${escapeAttr(img)}" class="w-full h-full object-contain" alt="${escapeAttr(p.name)}">` : ""}
+        ${g.loading ? `<span class="absolute inset-0 flex items-center justify-center"><span class="inline-block w-6 h-6 border-2 border-clay/40 border-t-clay rounded-full spin"></span></span>` : ""}
+        ${g.images.length > 1 ? `
+          <button onclick="galleryGo(1)" class="absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/90 shadow text-lg font-bold" aria-label="السابق">›</button>
+          <button onclick="galleryGo(-1)" class="absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full bg-white/90 shadow text-lg font-bold" aria-label="التالي">‹</button>` : ""}
+        <button onclick="closeGallery()" class="absolute top-2 left-2 w-8 h-8 rounded-full bg-white/90 shadow text-base font-bold" aria-label="إغلاق">×</button>
+      </div>
+      ${g.images.length > 1 ? `
+      <div class="flex gap-2 p-3 justify-center">
+        ${g.images.map((im, i) => `<button onclick="gallerySet(${i})" class="w-14 h-14 rounded-lg overflow-hidden border-2 ${i===g.idx ? 'border-clay' : 'border-hair'}"><img src="${escapeAttr(im)}" class="w-full h-full object-cover" alt=""></button>`).join("")}
+      </div>` : ""}
+      <div class="p-4 pt-1">
+        <h3 class="font-heading font-bold">${escapeHtml(p.name)}</h3>
+        <p class="text-xs text-ink/60 mt-1">${escapeHtml(p.desc || "")}</p>
+        <div class="flex items-center justify-between mt-3">
+          <span class="font-heading font-bold text-clayDark">${fmtDZD(p.price)}</span>
+          <button onclick="addToCart('${g.pid}'); closeGallery()" class="px-4 py-2 rounded-lg bg-clay hover:bg-clayDark text-white text-xs font-bold">إضافة للسلة</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
 }
 
 /* ---- Shipping & Desks Tab ---- */
@@ -934,7 +1091,7 @@ function compressImage(file, cfg) {
         if (cfg.type === "image/jpeg") { ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, w, h); } // خلفية بيضاء بدل الشفافية
         ctx.drawImage(img, 0, 0, w, h);
         const out = canvas.toDataURL(cfg.type, quality);
-        if (out.length <= MAX_IMAGE_CHARS) return resolve(out);
+        if (out.length <= (cfg.maxChars || MAX_IMAGE_CHARS)) return resolve(out);
         scale *= 0.8; quality = Math.max(0.5, quality - 0.1); // قلّل الحجم وأعد المحاولة
       }
       reject(new Error("too_large"));
