@@ -96,9 +96,9 @@ const ADMIN_EMAIL = "ozsocietygaming@gmail.com";
 /* =========================================================================
    2. EMAILJS CONFIG  (⚠️ عدّل هذه القيم من لوحة تحكم EmailJS الخاصة بك)
    ========================================================================= */
-const EMAILJS_PUBLIC_KEY  = "vu5Mg-9fcb_-5gRrP";
-const EMAILJS_SERVICE_ID  = "service_OzGmail";
-const EMAILJS_TEMPLATE_ID = "template_0vfok9f";
+const EMAILJS_PUBLIC_KEY  = "YOUR_EMAILJS_PUBLIC_KEY";
+const EMAILJS_SERVICE_ID  = "YOUR_EMAILJS_SERVICE_ID";
+const EMAILJS_TEMPLATE_ID = "YOUR_EMAILJS_TEMPLATE_ID";
 const STORE_OWNER_EMAIL   = "ozsocietygaming@gmail.com";
 try {
   if (window.emailjs && EMAILJS_PUBLIC_KEY !== "YOUR_EMAILJS_PUBLIC_KEY") {
@@ -870,38 +870,107 @@ function deleteDesk(id) {
 }
 
 /* ---- Branding Tab ---- */
+// إعدادات كل صورة: الحد الأقصى للأبعاد، الصيغة، والجودة
+const BRAND_IMAGES = {
+  logoUrl:        { label: "الشعار (Logo)",            maxW: 400,  maxH: 400,  type: "image/png",  quality: 0.9,  box: "w-20 h-20" },
+  bannerUrl:      { label: "صورة الغلاف (Banner)",      maxW: 1600, maxH: 700,  type: "image/jpeg", quality: 0.82, box: "w-full h-28" },
+  infoGraphicUrl: { label: "صورة التعليمات (اختياري)",  maxW: 1200, maxH: 1600, type: "image/jpeg", quality: 0.82, box: "w-full h-28" }
+};
+const MAX_IMAGE_CHARS = 900000; // الحد الأقصى لحجم الصورة المخزّنة (~650KB)
+
 function renderAdminBranding() {
   const s = STATE.settings;
+  const imageBlock = (field) => {
+    const cfg = BRAND_IMAGES[field];
+    const has = !!s[field];
+    const busy = STATE.uploadingField === field;
+    return `
+    <div>
+      <label class="block text-xs font-bold text-ink/70 mb-2">${cfg.label}</label>
+      <div class="flex items-center gap-3">
+        <div class="${cfg.box} ${field==='logoUrl' ? '' : 'flex-1'} rounded-xl border border-dashed border-hair bg-cream overflow-hidden flex items-center justify-center flex-shrink-0">
+          ${has ? `<img src="${escapeAttr(s[field])}" class="w-full h-full ${field==='logoUrl' ? 'object-cover' : 'object-contain'}" alt="">` : `<span class="text-xs text-ink/40">لا توجد صورة</span>`}
+        </div>
+        <div class="flex flex-col gap-2">
+          <label class="px-3 py-2 rounded-lg bg-clay hover:bg-clayDark text-white text-xs font-bold text-center cursor-pointer transition ${busy ? 'opacity-60 pointer-events-none' : ''}">
+            ${busy ? 'جارٍ الرفع...' : (has ? 'تغيير الصورة' : 'رفع صورة')}
+            <input type="file" accept="image/*" class="hidden" onchange="uploadBrandImage('${field}', this)">
+          </label>
+          ${has ? `<button onclick="removeBrandImage('${field}')" class="px-3 py-2 rounded-lg border border-red-200 text-red-500 text-xs font-bold hover:bg-red-50">حذف</button>` : ""}
+        </div>
+      </div>
+    </div>`;
+  };
   return `
-  <div class="bg-white border border-hair rounded-xl p-4 max-w-lg space-y-3">
+  <div class="bg-white border border-hair rounded-xl p-4 max-w-lg space-y-5">
     <h3 class="font-heading font-bold text-sm mb-2">الهوية والبانير</h3>
     <div>
       <label class="block text-xs font-bold text-ink/70 mb-1">اسم المتجر</label>
       <input id="br_name" value="${escapeAttr(s.storeName)}" class="w-full border border-hair rounded-lg px-3 py-2 text-sm bg-cream">
+      <button onclick="saveBranding()" class="mt-2 px-4 py-2 rounded-lg bg-clay hover:bg-clayDark text-white text-xs font-bold">حفظ الاسم</button>
     </div>
-    <div>
-      <label class="block text-xs font-bold text-ink/70 mb-1">رابط الشعار (Logo)</label>
-      <input id="br_logo" value="${escapeAttr(s.logoUrl)}" class="w-full border border-hair rounded-lg px-3 py-2 text-sm bg-cream">
-    </div>
-    <div>
-      <label class="block text-xs font-bold text-ink/70 mb-1">رابط صورة الغلاف (Banner)</label>
-      <input id="br_banner" value="${escapeAttr(s.bannerUrl)}" class="w-full border border-hair rounded-lg px-3 py-2 text-sm bg-cream">
-    </div>
-    <div>
-      <label class="block text-xs font-bold text-ink/70 mb-1">رابط صورة التعليمات (اختياري)</label>
-      <input id="br_info" value="${escapeAttr(s.infoGraphicUrl)}" class="w-full border border-hair rounded-lg px-3 py-2 text-sm bg-cream">
-    </div>
-    <button onclick="saveBranding()" class="px-4 py-2 rounded-lg bg-clay hover:bg-clayDark text-white text-xs font-bold">حفظ التغييرات</button>
+    ${imageBlock("logoUrl")}
+    ${imageBlock("bannerUrl")}
+    ${imageBlock("infoGraphicUrl")}
+    <p class="text-xs text-ink/40">تُحفظ الصورة تلقائياً فور اختيارها، ويتم تصغيرها وضغطها لتحميل أسرع للزبائن.</p>
   </div>`;
 }
+
+/* تصغير وضغط الصورة داخل المتصفح وتحويلها إلى Data URL */
+function compressImage(file, cfg) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let scale = Math.min(1, cfg.maxW / img.width, cfg.maxH / img.height);
+      let quality = cfg.quality;
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (cfg.type === "image/jpeg") { ctx.fillStyle = "#ffffff"; ctx.fillRect(0, 0, w, h); } // خلفية بيضاء بدل الشفافية
+        ctx.drawImage(img, 0, 0, w, h);
+        const out = canvas.toDataURL(cfg.type, quality);
+        if (out.length <= MAX_IMAGE_CHARS) return resolve(out);
+        scale *= 0.8; quality = Math.max(0.5, quality - 0.1); // قلّل الحجم وأعد المحاولة
+      }
+      reject(new Error("too_large"));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("bad_image")); };
+    img.src = url;
+  });
+}
+
+async function uploadBrandImage(field, input) {
+  const file = input.files && input.files[0];
+  input.value = "";
+  if (!file) return;
+  if (!file.type.startsWith("image/")) { showToast("الرجاء اختيار ملف صورة", false); return; }
+  if (file.size > 15 * 1024 * 1024) { showToast("حجم الصورة كبير جداً (الحد الأقصى 15MB)", false); return; }
+  STATE.uploadingField = field; render();
+  try {
+    const dataUrl = await compressImage(file, BRAND_IMAGES[field]);
+    await db.ref("settings/" + field).set(dataUrl);
+    showToast("تم رفع الصورة بنجاح");
+  } catch (e) {
+    console.warn("Image upload failed:", e);
+    showToast(e.message === "too_large" ? "الصورة كبيرة جداً حتى بعد الضغط، اختر صورة أصغر" : "تعذّر رفع الصورة", false);
+  } finally {
+    STATE.uploadingField = null; render();
+  }
+}
+
+function removeBrandImage(field) {
+  if (!confirm("حذف هذه الصورة؟")) return;
+  db.ref("settings/" + field).remove().then(() => showToast("تم حذف الصورة"));
+}
+
 function saveBranding() {
-  const data = {
-    storeName: document.getElementById("br_name").value.trim() || "متجرنا",
-    logoUrl: document.getElementById("br_logo").value.trim(),
-    bannerUrl: document.getElementById("br_banner").value.trim(),
-    infoGraphicUrl: document.getElementById("br_info").value.trim()
-  };
-  db.ref("settings").update(data).then(()=>showToast("تم حفظ الهوية بنجاح"));
+  const name = document.getElementById("br_name").value.trim() || "متجرنا";
+  db.ref("settings/storeName").set(name).then(() => showToast("تم حفظ اسم المتجر"));
 }
 
 /* =========================================================================
